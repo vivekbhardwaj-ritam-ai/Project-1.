@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Chat App</title>
+
+    <!-- IMPORTANT: local socket -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --accent-color: #3b82f6;
+            --success-color: #22c55e;
+            --danger-color: #ef4444;
+            --text-primary: #f8fafc;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: var(--text-primary);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .container {
+            width: 450px;
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 24px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        #chat {
+            height: 350px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 16px;
+            margin-bottom: 20px;
+            border-radius: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            scroll-behavior: smooth;
+        }
+
+        #chat div {
+            margin-bottom: 8px;
+            line-height: 1.5;
+            word-break: break-word;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(15, 23, 42, 0.5);
+            color: white;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        input:focus {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+        }
+
+        button {
+            padding: 12px 20px;
+            background: var(--success-color);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.1);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        /* Loading Indicator */
+        #loadingIndicator {
+            display: none;
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            background: var(--accent-color);
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-size: 14px;
+            animation: pulse 1.5s infinite;
+            z-index: 1000;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+
+            50% {
+                transform: scale(1.05);
+                opacity: 0.8;
+            }
+
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        .stats {
+            background: rgba(59, 130, 246, 0.1);
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 10px;
+            font-size: 14px;
+            color: #93c5fd;
+        }
+
+        .image-rcvd {
+            margin-top: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 12px;
+            border-radius: 16px;
+            display: inline-block;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .audio-rcvd {
+            margin-top: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 12px;
+            border-radius: 16px;
+            display: inline-block;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            min-width: 250px;
+        }
+
+        .loader-bar {
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            width: 100%;
+            border-radius: 2px;
+            margin: 10px 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .loader-progress {
+            position: absolute;
+            height: 100%;
+            background: var(--accent-color);
+            width: 30%;
+            animation: progress 2s infinite ease-in-out;
+        }
+
+        @keyframes progress {
+            0% {
+                left: -30%;
+            }
+
+            100% {
+                left: 100%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h2 style="margin: 0; font-weight: 700; letter-spacing: -0.025em;">Chat Room</h2>
+            <button id="clearChatBtn"
+                style="display: none; background: var(--danger-color); padding: 8px 12px; font-size: 14px;"
+                onclick="clearChat()">🗑️ Clear</button>
+        </div>
+
+        <div id="chat"></div>
+
+        <!-- JOIN -->
+        <div id="joinBox">
+            <input id="username" placeholder="What's your name?" />
+            <button onclick="join()" style="width: 100%; margin-top: 12px;">Join Chat</button>
+        </div>
+
+        <!-- CHAT -->
+        <div id="chatBox" style="display:none; align-items: center; gap: 10px;">
+            <input type="file" id="fileInput" accept="image/*,audio/*" style="display: none;" onchange="handleFileUpload(this)">
+            <button title="Upload File (Image/Audio)" onclick="document.getElementById('fileInput').click()"
+                style="background: var(--accent-color); padding: 12px; border-radius: 12px; width: 45px; height: 45px; font-size: 24px; font-weight: 300;">+</button>
+            <input id="message" placeholder="Type a message..." style="flex-grow: 1;" />
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <div id="loadingIndicator">Compressing & Sending...</div>
+
+    <script>
+        var socket;
+        var username;
+        var compressedDataURL = null;
+        var originalSizeKB = 0;
+        var compressedSizeKB = 0;
+
+        function join() {
+            username = document.getElementById('username').value;
+            if (!username) { alert("Enter name!"); return; }
+
+            socket = io({ query: { username: username } });
+
+            socket.on('message', function (msg) {
+                var chat = document.getElementById('chat');
+                chat.innerHTML += "<div>" + msg + "</div>";
+                chat.scrollTop = chat.scrollHeight;
+            });
+
+            socket.on('chat_cleared', function () {
+                var chat = document.getElementById('chat');
+                chat.innerHTML = "<div style='color: var(--danger-color); text-align: center; margin-top: 10px;'>Chat history was cleared.</div>";
+            });
+
+            document.getElementById('joinBox').style.display = "none";
+            document.getElementById('chatBox').style.display = "flex";
+            document.getElementById('clearChatBtn').style.display = "block";
+        }
+
+        function sendMessage() {
+            var input = document.getElementById('message');
+            if (input.value.trim() === "") return;
+            socket.send(input.value);
+            input.value = "";
+        }
+
+        function handleFileUpload(input) {
+            if (input.files && input.files[0]) {
+                const file = input.files[0];
+                var reader = new FileReader();
+
+                if (file.type.startsWith('image/')) {
+                    reader.onload = function (e) {
+                        compressImageWhatsApp(e.target.result);
+                    };
+                    reader.readAsDataURL(file);
+                } 
+                else if (file.type.startsWith('audio/')) {
+                    const loading = document.getElementById('loadingIndicator');
+                    loading.innerText = "Sending audio...";
+                    loading.style.display = 'block';
+
+                    reader.onload = function (e) {
+                        socket.emit('audio', e.target.result);
+                        loading.style.display = 'none';
+                        loading.innerText = "Compressing & Sending...";
+                    };
+                    reader.readAsDataURL(file);
+                }
+                
+                input.value = "";
+            }
+        }
+
+        function compressImageWhatsApp(dataURL) {
+            const loading = document.getElementById('loadingIndicator');
+            loading.style.display = 'block';
+
+            const originalSizeKB = Math.round(dataURL.length * 3 / 4 / 1024);
+            const img = new Image();
+
+            img.onload = function () {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+
+                // Extremely low loss (Very high fidelity): No resizing
+                const width = img.width;
+                const height = img.height;
+
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // Near-lossless quality (1.0) for extremely low reduction/loss
+                const compressedDataURL = canvas.toDataURL('image/jpeg', 1.0);
+                const compressedSizeKB = Math.round(compressedDataURL.length * 3 / 4 / 1024);
+
+                socket.emit('image', {
+                    image: compressedDataURL,
+                    originalSize: originalSizeKB,
+                    compressedSize: compressedSizeKB
+                });
+
+                loading.style.display = 'none';
+            };
+            img.src = dataURL;
+        }
+
+        function clearChat() {
+            if (confirm("Clear chat for everyone?")) socket.emit('clear_chat');
+        }
+
+        document.addEventListener("keypress", (e) => { if (e.key === "Enter") sendMessage(); });
+    </script>
+
+</body>
+
+</html>
